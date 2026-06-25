@@ -1,0 +1,15 @@
+# Connections to SQL Server / SAS / Snowflake / Hana
+pyodbc
+sqlalchemy
+saspy
+hdbcli
+
+# Core data stack
+pandas
+
+# HTTP / APIs / Auth
+requests
+msal
+
+# Excel support
+openpyxl
