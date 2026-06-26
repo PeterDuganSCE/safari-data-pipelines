@@ -13,3 +13,6 @@ msal
 
 # Excel support
 openpyxl
+
+# Other
+pyyaml
