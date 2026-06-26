@@ -1,0 +1,19 @@
+sqlserver:
+  host: "D259321"
+  port: 49172
+  driver: "ODBC Driver 17 for SQL Server"
+
+hana:
+  host: "vp55db51.sce.com"
+  port: 30015
+
+logging:
+  folder: "logs"
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+paths:
+  base: "."
+  log: "logs"
+  data: "data"
+  config: "config"
