@@ -12,62 +12,50 @@ Run:
     python sqlserver_to_hana_etl.py
 """
 
-import sys
-import logging
 import datetime
 import numbers
+import os
 from decimal import Decimal
-from typing import Iterator, Optional
+from pathlib import Path
+from typing import Any, Dict, Iterator, Optional
 
 import pandas as pd
+import yaml
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from hdbcli import dbapi
 
+from shared.logging import setup_logging
 
 # ---------------------------------------------------------------------
 # Logging configuration
 # ---------------------------------------------------------------------
-
-log_file = "etl.log"
-formatter = logging.Formatter(
-    "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
-)
-
-console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setFormatter(formatter)
-
-file_handler = logging.FileHandler(log_file, mode="w", encoding="utf-8")
-file_handler.setFormatter(formatter)
-
-logger = logging.getLogger("sqlserver_to_hana_etl")
-logger.setLevel(logging.INFO)
-logger.addHandler(console_handler)
-logger.addHandler(file_handler)
+logger = setup_logging("safari_to_hana_uge")
 
 
 # ---------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------
-# Update these values directly.
-# Credentials are shown as placeholders.
-# In production, avoid committing real usernames/passwords to source control.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+CONFIG_PATH = PROJECT_ROOT / "config" / "config.yaml"
+AUTH_PATH = PROJECT_ROOT / "config" / "auth.yaml"
 
-CONFIG = {
+logger.info("Project root directory: %s", PROJECT_ROOT)
+logger.info("Using config file: %s", CONFIG_PATH)
+logger.info("Using auth file: %s", AUTH_PATH)
+
+PIPELINE_DEFAULTS = {
     "sqlserver": {
-        "host": "D259321,49172",  # ip address or hostname, include port if needed
+        "host": "D259321",  # ip address or hostname
+        "port": 49172,
         "database": "PROD_SAFARI",
-        "username": "FIPA_APP",
-        "password": "2023Welc0meFIPA",
         "driver": "ODBC Driver 17 for SQL Server",
         "schema": "dbo",
         "table": "vw_UGEAllFields",
     },
     "hana": {
-        "host": "vp55db.sce.com",
+        "host": "vp55db51.sce.com",
         "port": 30015,
-        "username": "duganpr",
-        "password": "BlueForest1",
         "schema": "SCE_TD",
         "table": "FI_SAFARI_UGE",
     },
@@ -79,6 +67,41 @@ CONFIG = {
         "insert_batch_size": 5000,
     },
 }
+
+
+def merge_nested_dicts(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+    """Recursively merges override values into base dictionary."""
+    merged = dict(base)
+
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = merge_nested_dicts(merged[key], value)
+        else:
+            merged[key] = value
+
+    return merged
+
+
+def load_pipeline_config(
+    config_path: Path = CONFIG_PATH,
+    auth_path: Path = AUTH_PATH,
+) -> Dict[str, Any]:
+    """Loads and merges base config and auth config for pipeline execution."""
+    with open(config_path, "r", encoding="utf-8") as config_file:
+        config_yaml = yaml.safe_load(config_file) or {}
+
+    with open(auth_path, "r", encoding="utf-8") as auth_file:
+        auth_yaml = yaml.safe_load(auth_file) or {}
+
+    merged = merge_nested_dicts(PIPELINE_DEFAULTS, config_yaml)
+    merged = merge_nested_dicts(merged, auth_yaml)
+
+    # Allow secrets to be provided through environment variables when not in auth.yaml
+    merged.setdefault("sqlserver", {})
+    merged["sqlserver"].setdefault("username", os.getenv("SQLSERVER_USERNAME"))
+    merged["sqlserver"].setdefault("password", os.getenv("SQLSERVER_PASSWORD"))
+
+    return merged
 
 
 # ---------------------------------------------------------------------
@@ -135,10 +158,14 @@ def create_sqlserver_engine(config: dict) -> Engine:
     """
     sql_cfg = config["sqlserver"]
 
+    server = sql_cfg["host"]
+    if sql_cfg.get("port"):
+        server = f"{server},{sql_cfg['port']}"
+
     connection_url = (
         "mssql+pyodbc://"
         f"{sql_cfg['username']}:{sql_cfg['password']}"
-        f"@{sql_cfg['host']}/{sql_cfg['database']}"
+        f"@{server}/{sql_cfg['database']}"
         f"?driver={sql_cfg['driver'].replace(' ', '+')}"
         "&TrustServerCertificate=yes"
     )
@@ -705,4 +732,4 @@ def run_pipeline(config: dict) -> None:
 
 
 if __name__ == "__main__":
-    run_pipeline(CONFIG)
+    run_pipeline(load_pipeline_config())
