@@ -730,6 +730,7 @@ def run_pipeline(config: dict) -> None:
             hana_connection.close()
             logger.info("SAP HANA connection closed.")
 
+        logger.info("-" * 50)
 
 if __name__ == "__main__":
     run_pipeline(load_pipeline_config())
