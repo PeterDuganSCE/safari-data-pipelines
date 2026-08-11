@@ -5,13 +5,17 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
 
+from shared.paths import CONFIG_PATH as _DEFAULT_CONFIG_PATH
+
 
 def setup_logging(
         log_name: str,
     log_level: Optional[str] = None,
     format: Optional[str] = None,
-        config_path: str = "config/config.yaml"
+        config_path: Optional[str] = None,
     ) -> logging.Logger:
+    if config_path is None:
+        config_path = str(_DEFAULT_CONFIG_PATH)
 
     # load logging configuration from YAML file
     with open(config_path, "r") as f:
