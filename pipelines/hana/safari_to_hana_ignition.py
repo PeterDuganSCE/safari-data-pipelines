@@ -744,7 +744,7 @@ def run_pipeline(config: dict, drop_and_recreate: bool = False) -> None:
 			drop_hana_table(hana_connection, target_schema, target_table)
 
 		# Uncomment this line if the pipeline should fully replace target data.
-		# truncate_hana_table(hana_connection, target_schema, target_table)
+		truncate_hana_table(hana_connection, target_schema, target_table)
 
 		for source_chunk in extract_sqlserver_data(
 			engine=sql_engine,

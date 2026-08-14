@@ -26,19 +26,12 @@ from sqlalchemy.engine import Engine
 from hdbcli import dbapi
 
 from shared.logging import setup_logging
+from shared.paths import AUTH_PATH, CONFIG_PATH, PROJECT_ROOT
 
 # ---------------------------------------------------------------------
 # Logging configuration
 # ---------------------------------------------------------------------
 logger = setup_logging("safari_to_hana_uge")
-
-
-# ---------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-CONFIG_PATH = PROJECT_ROOT / "config" / "config.yaml"
-AUTH_PATH = PROJECT_ROOT / "config" / "auth.yaml"
 
 logger.info("Project root directory: %s", PROJECT_ROOT)
 logger.info("Using config file: %s", CONFIG_PATH)
