@@ -1,0 +1,2 @@
+call C:\Users\brownsjm\AppData\Local\Programs\Python\Python39
+call C:\Users\brownsjm\AppData\Local\Programs\Python\Python39\python.exe "\\sce\workgroup\TDBU7\RESO-CRT\PERFORMANCE MANAGEMENT AND ANALYSIS\Jbrow\PowerAppAutomation\Transmission_Events\iTOA_Transmission_Events.py"
