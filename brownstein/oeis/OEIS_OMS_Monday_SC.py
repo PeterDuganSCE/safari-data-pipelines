@@ -38,7 +38,7 @@ print('RUNNING OEIS_OMS.py')
 #                      summarize, DelayFunction)
 
 #Get created date of newest file in report folder
-list_of_files = glob.glob('C:/Users/brownsjm/Southern California Edison/FIPA - FIPA_Reporting/OEIS_Report/*.csv')  # change this to the directory you want to search
+list_of_files = glob.glob('C:/Users/duganpr/Southern California Edison/FIPA - FIPA_Reporting/OEIS_Report/*.csv')  # change this to the directory you want to search
 latest_file = max(list_of_files, key=os.path.getctime)
 # latest_file = 'SCE_2026-01-06-1-29300.csv'
 # latest_file = r'C:/Users/brownsjm/Southern California Edison/FIPA - FIPA_Reporting/OEIS_Report\SCE_2026-01-06-1-29300.csv'
@@ -66,8 +66,8 @@ before_weekend_year_year = str(before_weekend_year_year)
 with open(AUTH_PATH, "r", encoding="utf-8") as auth_file:
     hana_credentials = (yaml.safe_load(auth_file) or {})["hana"]
 
-city_county = pd.read_excel('City_County.xlsx')
-pole_census = pd.read_csv('Pole_Census_SurfaceFuels_20230308.csv')
+city_county = pd.read_excel('data/City_County.xlsx')
+pole_census = pd.read_csv('data/Pole_Census_SurfaceFuels_20230308.csv')
 
 pole_census_1 = pole_census[['SCE_STRUCTURE_NO', 'Definition', 'URBANRURAL']]
 

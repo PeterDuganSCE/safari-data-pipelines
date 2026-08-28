@@ -3,6 +3,7 @@ pyodbc
 sqlalchemy
 saspy
 hdbcli
+pywin32; sys_platform == "win32"
 
 # Core data stack
 pandas
