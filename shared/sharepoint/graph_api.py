@@ -68,7 +68,7 @@ def authenticate_user():
     creds = json.load(
         open("C:/Users/" 
             + getpass.getuser() 
-            + "/auth.json"))['windowsAuth']
+            + "/sharepoint_auth.json"))['windowsAuth']
 
     username = creds['email']
     password = creds['password']

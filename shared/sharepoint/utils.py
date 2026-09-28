@@ -3,15 +3,20 @@ import sys
 import traceback
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote, unquote, urlparse
 
+import pandas as pd
 import requests
-import sharepoint.graph_api as graph_api
+from . import graph_api
 
-from control.controller import Controller
+try:
+    from control.controller import Controller
+except ModuleNotFoundError:
+    Controller = None
 
-from sharepoint.graph_api import (
+from .graph_api import (
     create_sharepoint_folder,
     delete_sharePoint_folder,
     ensure_authenticated,
@@ -25,7 +30,90 @@ from sharepoint.graph_api import (
 site_url = 'https://edisonintl.sharepoint.com/teams/td3/AES/AADS/FA/Failure-Event-Analysis'
 drive_id = None  # Set to None to fetch drive ID dynamically based on site URL and drive name
 
-logger = Controller.get_controller().logger
+logger = Controller.get_controller().logger if Controller else logging.getLogger(__name__)
+
+
+def upload_dataframe_to_sharepoint_list(
+    sharepoint_site: str,
+    sharepoint_list_name: str,
+    dataframe: pd.DataFrame,
+    sharepoint_field_mapping: dict[str, str] | None = None,
+) -> int:
+    """Upload each DataFrame row as an item in a SharePoint list.
+
+    Args:
+        sharepoint_site: Full SharePoint site URL.
+        sharepoint_list_name: Display name of the destination SharePoint list.
+        dataframe: Rows to upload.
+        sharepoint_field_mapping: Optional mapping from DataFrame column names
+            to SharePoint internal field names.
+
+    Returns:
+        Number of rows uploaded.
+    """
+    if not sharepoint_list_name:
+        raise ValueError("sharepoint_list_name must be provided")
+
+    if not isinstance(dataframe, pd.DataFrame):
+        raise TypeError("dataframe must be a pandas DataFrame")
+
+    ensure_authenticated()
+    field_mapping = sharepoint_field_mapping or {}
+    parsed_site_url = urlparse(sharepoint_site)
+    if not parsed_site_url.netloc or not parsed_site_url.path:
+        raise ValueError(f"Invalid SharePoint site URL: {sharepoint_site}")
+
+    site_response = graph_api.call_graph_api(
+        f"sites/{parsed_site_url.netloc}:{parsed_site_url.path}",
+        "GET",
+    )
+    if not site_response or "id" not in site_response:
+        raise RuntimeError(f"Unable to resolve SharePoint site: {sharepoint_site}")
+
+    site_id = site_response["id"]
+    lists_response = graph_api.call_graph_api(f"sites/{site_id}/lists", "GET") or {}
+    list_lookup = {
+        item["displayName"].strip().casefold(): item["id"]
+        for item in lists_response.get("value", [])
+        if item.get("displayName") and item.get("id")
+    }
+    list_id = list_lookup.get(sharepoint_list_name.strip().casefold())
+    if not list_id:
+        raise ValueError(
+            f"SharePoint list '{sharepoint_list_name}' was not found. "
+            f"Available lists: {sorted(list_lookup)}"
+        )
+
+    def serialize_value(value):
+        if pd.isna(value):
+            return None
+        if isinstance(value, (pd.Timestamp, datetime)):
+            return value.isoformat()
+        if hasattr(value, "item"):
+            return value.item()
+        return value
+
+    for _, row in dataframe.iterrows():
+        fields = {
+            field_mapping.get(column, column): serialize_value(value)
+            for column, value in row.items()
+        }
+        response = graph_api.call_graph_api(
+            f"sites/{site_id}/lists/{list_id}/items",
+            "POST",
+            data={"fields": fields},
+        )
+        if not response:
+            raise RuntimeError(
+                f"SharePoint list upload failed for row with fields: {fields}"
+            )
+
+    logger.info(
+        "Uploaded %s rows to SharePoint list %s.",
+        len(dataframe),
+        sharepoint_list_name,
+    )
+    return len(dataframe)
 
 
 def _log_file_only(level: int, message: str) -> None:
@@ -106,6 +194,15 @@ def _resolve_sharepoint_upload_target(sharepoint_folder: str) -> tuple[str, str,
         default_site_id = resolve_site_id_from_url(site_url)
         if not default_site_id:
             return None
+
+        path_segments = [segment for segment in folder_value.replace("\\", "/").split("/") if segment]
+        drives_result = graph_api.call_graph_api(f"sites/{default_site_id}/drives", "GET")
+        drives = (drives_result or {}).get("value", [])
+        if path_segments:
+            requested_drive = _normalize_drive_name(path_segments[0])
+            for drive in drives:
+                if requested_drive == _normalize_drive_name(drive.get("name", "")):
+                    return default_site_id, drive["id"], "/".join(path_segments[1:])
 
         default_drive_id = get_drive_id(default_site_id)
         if not default_drive_id:
@@ -498,6 +595,43 @@ def upload_file(filepath: Path, sharepoint_folder: str) -> str | None:
             to_recipients
         )
 
+        return None
+
+
+def download_file(file_name: str, sharepoint_folder: str, destination: Path) -> Path | None:
+    """Download a SharePoint file to a local working path."""
+    try:
+        if not ensure_authenticated():
+            logger.error("Authentication failed. Exiting.")
+            return None
+
+        download_target = _resolve_sharepoint_upload_target(sharepoint_folder)
+        if not download_target:
+            logger.error("Unable to resolve SharePoint download target. Exiting.")
+            return None
+
+        site_id, drive_id, folder_path = download_target
+        relative_path = f"{folder_path}/{file_name}" if folder_path else file_name
+        encoded_path = quote(relative_path, safe="/")
+        file_info = graph_api.call_graph_api(
+            f"sites/{site_id}/drives/{drive_id}/root:/{encoded_path}",
+            "GET"
+        )
+        download_url = (file_info or {}).get("@microsoft.graph.downloadUrl")
+        if not download_url:
+            logger.error(f"SharePoint file not found: {relative_path}")
+            return None
+
+        response = requests.get(download_url)
+        if response.status_code != 200:
+            logger.error(f"File download failed: {response.status_code}")
+            return None
+
+        destination_path = Path(destination)
+        destination_path.write_bytes(response.content)
+        return destination_path
+    except Exception as e:
+        logger.error(f"File download error: {e}")
         return None
 
 
