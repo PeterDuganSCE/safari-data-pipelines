@@ -221,3 +221,11 @@ __marimo__/
 config/
 data/
 logs/
+documents/
+output/
+
+# Brownstein Script Data Files
+brownstein/transmission/previous_runs_sap
+brownstein/transmission/previous_runs_itoa
+brownstein/substation/previous_runs_sap
+brownstein/substation/previous_runs_itoa
