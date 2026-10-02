@@ -11,13 +11,13 @@ requests to Microsoft Cloud service resources.
 
 import pandas as pd
 import json
-import getpass
 import requests
 import msal
 from urllib.parse import urlparse
 import io
 import sys
 import traceback
+from pathlib import Path
 #One time run per system
 ####pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org pip-system-certs
 
@@ -27,6 +27,7 @@ import traceback
 # Sometimes token may expire in the middle of the run
 # Store headers here to refresh token if needed
 _headers = None
+SHAREPOINT_AUTH_PATH = Path(__file__).resolve().parents[2] / "config" / "sharepoint_auth.json"
 
 
 
@@ -44,11 +45,11 @@ Credentials) flow
 """
 def authenticate_user():
 
-    ### First step requires us to create a Public Client Application
-    # Fetch app registration details
-    app_details = json.load(
-        open("config/sharepoint_auth.json")
-    )['graphAuth']
+    with SHAREPOINT_AUTH_PATH.open("r", encoding="utf-8") as auth_file:
+        auth_config = json.load(auth_file)
+
+    app_details = auth_config["graphAuth"]
+    creds = auth_config["windowsAuth"]
     
     tenant_id = app_details['tenant_id']
     client_id = app_details['client_id']
@@ -64,14 +65,8 @@ def authenticate_user():
 
 
     ### Next, proceed to fetch access token to use with Graph API
-    # Fetch user credentials
-    creds = json.load(
-        open("C:/Users/" 
-            + getpass.getuser() 
-            + "/sharepoint_auth.json"))['windowsAuth']
-
-    username = creds['email']
-    password = creds['password']
+    username = creds["email"]
+    password = creds["password"]
     
     scope = ['https://graph.microsoft.com/.default']
     
