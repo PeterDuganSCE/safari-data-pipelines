@@ -25,7 +25,7 @@ class GraphClient:
     def __init__(
         self,
         app_config_path="config/sharepoint_auth.json",
-        credential_file=None,
+        credential_file="config/sharepoint_auth.json",
         timeout=60
     ):
 
