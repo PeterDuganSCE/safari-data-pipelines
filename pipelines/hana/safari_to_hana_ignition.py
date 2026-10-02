@@ -56,7 +56,7 @@ PIPELINE_DEFAULTS = {
 		"host": "vp55db51.sce.com",
 		"port": 30015,
 		"schema": "SCE_TD",
-		"table": "FI_SAFARI_IGNITIONS_2",
+		"table": "FI_SAFARI_IGNITIONS",
 	},
 	"etl": {
 		# Number of rows extracted from SQL Server at a time
