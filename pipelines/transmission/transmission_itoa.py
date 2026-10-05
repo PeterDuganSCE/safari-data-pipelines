@@ -27,21 +27,41 @@ if str(PROJECT_ROOT) not in sys.path:
 from shared.sharepoint.graph_api import authenticate_user
 from shared.sharepoint.utils import upload_dataframe_to_sharepoint_list
 from shared.utils import system_assignments
+from shared.logging import setup_logging
+
+logger = setup_logging('transmission_itoa')
+
+
+def _log_unhandled_exception(exception_type, exception_value, exception_traceback):
+    logger.critical(
+        'Transmission iTOA pipeline failed.',
+        exc_info=(exception_type, exception_value, exception_traceback),
+    )
+
+
+sys.excepthook = _log_unhandled_exception
+logger.info('Starting transmission iTOA pipeline.')
 
 # iTOA SQL Server connection details
 DB_DRIVER = "{SQL Server}" # Or whatever driver is installed in your machine
 DB_SERVER = 'tcp:AYWCPSQL116\SQLP740,1989'  # Irvine Server
 # DB_SERVER = 'tcp:AYWCPSQL651\SQLP648,1989'  # Alhambra Server
 DATABASE_NAME = 'ITOA'  # development server, for testing
+logger.info('Connecting to iTOA database %s on %s.', DATABASE_NAME, DB_SERVER)
 itoa_connection = pyodbc.connect(f"DRIVER={DB_DRIVER};SERVER={DB_SERVER};DATABASE={DATABASE_NAME};Trusted_Connection=no;")
+logger.info('iTOA database connection established.')
 
 
 itoa_query = '''SELECT DISTINCT APP_ID, LINE_OF_BUSINESS, APPLICATION_STATUS, EQUIPMENT, VOLTAGE_LEVEL, MAIN_ACTUAL_OUT, DISTURBANCE_DURATION, DISTURBANCE_NO, AFFECTED_DISTRICT, WORK_CENTERS, WEATHER, MISCELLANEOUS_COMMENTS, event_activity_comments, INITIATING_CAUSE_CODE, INITIATING_SUB_CAUSE, CAUSE_CATEGORY, OUTAGE_CATEGORY, PROCESS_STATUS FROM dbo.GENERIC_INT_TADS_V'''
+logger.info('Reading iTOA outage records.')
 df_itoa = pd.read_sql(itoa_query, itoa_connection)
+logger.info('Loaded %s iTOA records.', len(df_itoa))
 
 df_itoa = df_itoa.drop_duplicates()
+logger.info('Retained %s records after removing duplicates.', len(df_itoa))
 df_itoa = df_itoa[df_itoa['LINE_OF_BUSINESS'] == 'Transmission']
 df_itoa = df_itoa[df_itoa['PROCESS_STATUS'] != 'VOID']
+logger.info('Retained %s non-VOID transmission records.', len(df_itoa))
 df_itoa['iTOA_link'] = df_itoa['APP_ID'].apply(lambda x: f'https://orls.sce.com/itoa/autooutage/view.htmlx?editedOutage.appId={x}&eventAnalysis.analysisId=&referer=interruption')
 del df_itoa['PROCESS_STATUS']
 
@@ -54,7 +74,10 @@ today = datetime.strptime(today_str, " %d%b%Y")
 
 #Get date of last run to pull data from days that it didnt run
 list_of_files = glob.glob('pipelines/transmission/previous_runs_itoa/*')
+if not list_of_files:
+    raise FileNotFoundError('No previous transmission iTOA run workbooks were found.')
 latest_file = max(list_of_files, key=os.path.getctime)
+logger.info('Loading previous run workbook: %s', latest_file)
 
 
 t = latest_file.split("iTOA_Transmission_Events_")[1]
@@ -65,6 +88,7 @@ last_date_str = last_date.strftime(" %d%b%Y")
 
 #Load previous file to prevent duplicates when running the extra day for 6pm to midnight data
 prev_run_file = pd.read_excel(latest_file)
+logger.info('Loaded %s records from the previous run workbook.', len(prev_run_file))
 
 #One delay to take notifications back another day in case events came in after 6pm that day (Loaded data at 6pm so cutoff in SAP)
 full_day = last_date - dt.timedelta(days=1)
@@ -77,6 +101,9 @@ yesterday_str = yesterday.strftime(" %d%b%Y")
 # %% Limit to last day
 # =============================================================================
 df_itoa['Out_Date'] = pd.to_datetime(df_itoa['MAIN_ACTUAL_OUT'], errors='coerce')
+invalid_date_count = int(df_itoa['Out_Date'].isna().sum())
+if invalid_date_count:
+    logger.warning('Excluding %s records with missing or invalid outage dates.', invalid_date_count)
 
 
 # today = dt.datetime.today()
@@ -87,9 +114,14 @@ df_itoa['Out_Date'] = pd.to_datetime(df_itoa['MAIN_ACTUAL_OUT'], errors='coerce'
 # yesterday = yesterday.strftime('%m/%d/%Y')
 itoa_gen_t_2 = df_itoa[df_itoa['Out_Date'] >= full_day]
 itoa_gen_t_2 = itoa_gen_t_2[itoa_gen_t_2['Out_Date'] < today]
+logger.info(
+    'Selected %s records for outage dates from %s (inclusive) to %s (exclusive).',
+    len(itoa_gen_t_2), full_day.strftime('%Y-%m-%d'), today.strftime('%Y-%m-%d'),
+)
 
 
 if len(itoa_gen_t_2) > 0:
+    logger.info('Cleaning circuit names and enriching transmission records.')
 #Write out data for team to see the information
     formatted_today = today = today.strftime('%m/%d/%Y')
     formatted_today = dt.datetime.strptime(formatted_today, '%m/%d/%Y') #convert back to a datetime object
@@ -121,7 +153,9 @@ if len(itoa_gen_t_2) > 0:
 # =============================================================================
 # Bring in if circuit is HFRA
 # =============================================================================
+    logger.info('Loading transmission circuit reference workbook.')
     trans_ckt_info = pd.read_excel('data/HFRA Transmission and Subtransmission Master Circuit List.xlsx')
+    logger.info('Loaded %s circuit reference records.', len(trans_ckt_info))
 
     trans_ckt_info_sub = trans_ckt_info[['Circuit Name', 'HFRA TIERS']]
     
@@ -158,7 +192,9 @@ if len(itoa_gen_t_2) > 0:
 # Assign Engineers based on System Assignments in Keyword Scrape which comes from PowerAutomate flow to update excel there
 # =============================================================================
 #Engineer Assigned from System Assignments
+    logger.info('Loading SharePoint system assignments.')
     sys_assign = system_assignments()  # pd.read_excel('C:/Users/duganpr/Southern California Edison/Failure Event Analysis - Keyword Scrape/System_Assignments.xlsx')
+    logger.info('Loaded %s system assignment records.', len(sys_assign))
     # sys_assign = pd.read_excel('C:/Users/brownsjm/Southern California Edison/Failure Event Analysis - Documents (1)/Repair Order Event Tracking/Keyword Scrape/System_Assignments.xlsx')
 
     itoa_gen_t3['WORK_CENTERS'] = itoa_gen_t3['WORK_CENTERS'].str.upper()
@@ -167,6 +203,9 @@ if len(itoa_gen_t_2) > 0:
                          right_on= ['Switching Center'], how='left').drop(['Switching Center'], axis=1)
 
     itoa_gen_t4['Engineer Assigned'] = itoa_gen_t4['Engineer Assigned'].fillna('Unassigned')
+    unassigned_count = int(itoa_gen_t4['Engineer Assigned'].eq('Unassigned').sum())
+    if unassigned_count:
+        logger.warning('%s records have no assigned engineer.', unassigned_count)
 
     itoa_gen_t4['Subject'] = 'Trans_itoa_' + itoa_gen_t4['APP_ID'].astype(str)
     itoa_gen_t4['Entry_Method'] = 'ILS'
@@ -236,19 +275,26 @@ if len(itoa_gen_t_2) > 0:
     }
     sharepoint_upload_columns = list(sharepoint_field_mapping)
     sharepoint_upload_data = itoa_gen_t4[sharepoint_upload_columns]
+    logger.info('Authenticating to SharePoint for the transmission upload.')
     authenticate_user()
-    upload_dataframe_to_sharepoint_list(
+    logger.info('Uploading %s records to SharePoint list %s.', len(sharepoint_upload_data), sharepoint_list_name)
+    uploaded_count = upload_dataframe_to_sharepoint_list(
         sharepoint_site=sharepoint_site,
         sharepoint_list_name=sharepoint_list_name,
         dataframe=sharepoint_upload_data,
         sharepoint_field_mapping=sharepoint_field_mapping,
     )
+    logger.info('Uploaded %s records to SharePoint list %s.', uploaded_count, sharepoint_list_name)
 
 # =============================================================================
 # Write to previous run to not get duplicates and base pull off of last run
 # =============================================================================
     output_filepath = 'pipelines/transmission/previous_runs_itoa/iTOA_Transmission_Events_' + date_str + ".xlsx"
+    logger.info('Saving run-history workbook: %s', output_filepath)
     itoa_gen_t4.to_excel(output_filepath, index=False)
+    logger.info('Saved %s records to %s.', len(itoa_gen_t4), output_filepath)
         
 else:
-    print("No new iTOA Events to process")
+    logger.info('No new iTOA events to process.')
+
+logger.info('Transmission iTOA pipeline completed.')
