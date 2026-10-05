@@ -22,6 +22,44 @@ from shared.sharepoint.utils import download_file, upload_file
 from shared.sharepoint.utils import upload_dataframe_to_sharepoint_list
 from shared.utils import distribution_circuits
 
+
+def _remove_processed_source_rows(workbook_path, processed_source_rows):
+    workbook = load_workbook(workbook_path)
+    try:
+        worksheet = workbook.worksheets[0]
+        source_table = None
+        for table in worksheet.tables.values():
+            min_col, min_row, max_col, max_row = openpyxl.utils.range_boundaries(table.ref)
+            headers = [worksheet.cell(min_row, column).value for column in range(min_col, max_col + 1)]
+            if min_row == 1 and 'WatchOffice' in headers:
+                source_table = table
+                break
+        if source_table is None:
+            raise RuntimeError('The source workbook must contain an existing WatchOffice table on the first sheet.')
+
+        totals_rows = int(bool(source_table.totalsRowCount))
+        rows_to_delete = sorted({int(row) + 2 for row in processed_source_rows}, reverse=True)
+        if any(row <= min_row or row > max_row - totals_rows for row in rows_to_delete):
+            raise ValueError('Processed source rows fall outside the WatchOffice table.')
+
+        for row in rows_to_delete:
+            worksheet.delete_rows(row)
+
+        new_max_row = max_row - len(rows_to_delete)
+        if new_max_row < min_row + 1 + totals_rows:
+            if totals_rows:
+                worksheet.insert_rows(min_row + 1)
+            new_max_row = min_row + 1 + totals_rows
+        start_cell = f'{openpyxl.utils.get_column_letter(min_col)}{min_row}'
+        end_column = openpyxl.utils.get_column_letter(max_col)
+        source_table.ref = f'{start_cell}:{end_column}{new_max_row}'
+        if source_table.autoFilter is not None:
+            source_table.autoFilter.ref = f'{start_cell}:{end_column}{new_max_row - totals_rows}'
+        workbook.save(workbook_path)
+    finally:
+        workbook.close()
+
+
 logger = setup_logging("watchoffice")
 logger.info('Running outlook_WatchOffice_fire.py')
 
@@ -270,14 +308,13 @@ try:
             )
 
         processed_source_rows = set(read_watchoffice[source_row_column])
-        remaining_workbook = source_workbook[
-            ~source_workbook[source_row_column].isin(processed_source_rows)
-        ].drop(columns=[source_row_column])
 
         with tempfile.TemporaryDirectory() as temp_dir:
             if source_is_sharepoint:
                 replacement_path = Path(temp_dir) / sharepoint_file_name
-                remaining_workbook.to_excel(replacement_path, index=False)
+                if not download_file(sharepoint_file_name, sharepoint_folder_url, replacement_path):
+                    raise RuntimeError('Unable to download the source workbook for row cleanup.')
+                _remove_processed_source_rows(replacement_path, processed_source_rows)
                 uploaded_source = upload_file(replacement_path, sharepoint_folder_url)
                 if not uploaded_source:
                     raise RuntimeError(
@@ -285,7 +322,7 @@ try:
                         'workbook could not be replaced.'
                     )
             else:
-                remaining_workbook.to_excel(local_source_path, index=False)
+                    _remove_processed_source_rows(local_source_path, processed_source_rows)
         logger.info(
             'Removed %s successfully processed rows from %s.',
             len(processed_source_rows),
