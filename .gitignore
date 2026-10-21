@@ -225,6 +225,8 @@ documents/
 output/
 pipelines/transmission/previous_runs_itoa
 pipelines/transmission/previous_runs_sap
+pipelines/substation/previous_runs_itoa
+pipelines/substation/previous_runs_sap
 
 # Brownstein Script Data Files
 brownstein/transmission/previous_runs_sap
