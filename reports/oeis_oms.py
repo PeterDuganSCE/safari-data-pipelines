@@ -23,7 +23,7 @@ from shared.paths import AUTH_PATH, CONFIG_PATH
 # ---------------------------------------------------------------------
 # Logging configuration
 # ---------------------------------------------------------------------
-logger = setup_logging("safari_to_hana_ignition")
+logger = setup_logging("oeis_oms")
 
 
 # ---------------------------------------------------------------------
