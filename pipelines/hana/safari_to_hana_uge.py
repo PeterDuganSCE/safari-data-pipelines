@@ -15,6 +15,7 @@ Run:
 import datetime
 import numbers
 import os
+import sys
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, Iterator, Optional
@@ -24,6 +25,10 @@ import yaml
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from hdbcli import dbapi
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from shared.logging import setup_logging
 from shared.paths import AUTH_PATH, CONFIG_PATH, PROJECT_ROOT
@@ -550,6 +555,23 @@ def load_dataframe_to_hana(
         logger.info("Dataframe is empty. Skipping SAP HANA load.")
         return
 
+    if hana_column_types is None:
+        hana_column_types = build_hana_column_type_map(df)
+
+    columns = [
+        column for column in df.columns
+        if column in HANA_COLUMN_TYPE_MAP and column in hana_column_types
+    ]
+    if not columns:
+        raise ValueError("No approved SAP HANA columns are available to load.")
+
+    skipped_columns = [column for column in df.columns if column not in columns]
+    if skipped_columns:
+        logger.warning("Skipping unapproved SAP HANA columns: %s", skipped_columns)
+
+    df = df.loc[:, columns]
+    hana_column_types = {column: hana_column_types[column] for column in columns}
+
     create_hana_table_if_missing(
         hana_connection=hana_connection,
         df=df,
@@ -557,8 +579,6 @@ def load_dataframe_to_hana(
         target_table=target_table,
         hana_column_types=hana_column_types,
     )
-
-    columns = list(df.columns)
 
     quoted_schema = quote_hana_identifier(target_schema)
     quoted_table = quote_hana_identifier(target_table)
